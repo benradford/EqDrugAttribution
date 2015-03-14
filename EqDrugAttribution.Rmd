@@ -1,0 +1,100 @@
+---
+title: "EquationDrug Attribution"
+author: "Benjamin J. Radford"
+date: "March 12, 2015"
+output: html_document
+---
+
+First, we'll use the `workalendar` module from Python to create a set of work-day distributions for various candidate countries.
+```{r, engine='python', highlight=T}
+# This code is in Python 2.7
+# It uses the workalendar package to get natianal holidays for various countries.
+from datetime import date
+import csv
+import os
+from workalendar.europe import France, UnitedKingdom, Germany
+from workalendar.canada import Canada
+from workalendar.usa import UnitedStates
+from workalendar.oceania import Australia
+from workalendar.america import Brazil
+cal = {'France':France(), 'UnitedKingdom':UnitedKingdom(), 
+       'Germany':Germany(), 'Canada':Canada(), 
+       'UnitedStates':UnitedStates(), 'Australia':Australia(),
+       'Brazil':Brazil()}
+with open('temp_holidays.csv','w') as my_file:
+  csv_file = csv.writer(my_file)
+  csv_file.writerow(['date','name','country'])
+  for yy in range(2001,2013):
+    for cc in cal:
+      for dd in cal[cc].holidays(yy):
+        dd = dd + (cc,)
+        csv_file.writerow(dd)
+```
+
+Now we'll open our new holiday file in R as a dataframe. Then, we'll load the Equation Group's link timestamp dates into the R object `eq.dates`. These come from [Kaspersky Labs](http://securelist.com/blog/research/69203/inside-the-equationdrug-espionage-platform/). 
+```{r, echo=T, error=F, message=F, warning=F, results='hide'}
+# This code is in R.
+# First, we read in the csv file we just created with holidays by country.
+library(timeDate)
+holiday <- read.csv("temp_holidays.csv", stringsAsFactors=F)
+holiday$date <- as.Date(holiday$date)
+holiday.list <- split(holiday, holiday$country)
+file.remove("temp_holidays.csv")
+
+eq.dates <- c("2001.08.17", "2007.12.11", "2009.04.16", "2011.10.20", "2012.08.31", "2013.06.11",
+              "2001.08.23", "2007.12.17", "2009.06.05", "2011.10.26", "2012.09.28", "2013.06.26",
+              "2003.08.16", "2008.01.01", "2009.12.15", "2012.03.06", "2012.10.23", "2013.08.09",
+              "2003.08.17", "2008.01.23", "2010.01.22", "2012.03.22", "2012.11.02", "2013.08.28",
+              "2005.03.16", "2008.01.24", "2010.02.19", "2012.04.03", "2012.11.06", "2013.10.16",
+              "2005.09.08", "2008.01.29", "2010.02.22", "2012.04.04", "2013.01.08", "2013.11.04",
+              "2006.06.15", "2008.01.30", "2010.03.27", "2012.04.05", "2013.02.07", "2013.11.26",
+              "2006.09.18", "2008.04.24", "2010.06.15", "2012.04.12", "2013.02.21", "2013.12.04",
+              "2006.10.04", "2008.05.07", "2011.02.09", "2012.07.02", "2013.02.22", "2013.12.05",
+              "2006.10.16", "2008.05.09", "2011.02.23", "2012.07.09", "2013.02.27", "2013.12.13",
+              "2007.07.12", "2008.06.17", "2011.08.08", "2012.07.17", "2013.04.16",
+              "2007.10.02", "2008.09.17", "2011.08.30", "2012.08.02", "2013.05.08",
+              "2007.10.16", "2008.09.24", "2011.09.02", "2012.08.03", "2013.05.14",
+              "2007.12.10", "2008.12.05", "2011.10.04", "2012.08.14", "2013.05.24")
+eq.dates <- as.Date(eq.dates,"%Y.%m.%d")
+
+# Set parameters
+all.dates <- seq(min(eq.dates),max(eq.dates),by=1)
+all.dates <- all.dates[isWeekday(all.dates)]
+sample.size <- length(eq.dates)
+n <- 10000
+
+# Simulate n link dates
+sample.dates <- list()
+for(ii in 1:n)
+  sample.dates <- c(sample.dates, list(sample(all.dates, sample.size)))
+
+# Calculate holiday distribution for each country
+simulated.list <- list()
+observed.list <- NULL
+country.name <- NULL
+for(cc in holiday.list)
+{
+  simulated.list <- c(simulated.list, list(lapply(sample.dates, FUN=function(x){sum(x %in% cc$date)})))
+  observed.list <- c(observed.list, sum(eq.dates %in% cc$date))
+  country.name <- c(country.name,unique(cc$country)) 
+}
+```
+
+Finally, we will inspect the results.
+```{r, warning=F, error=F, message=F, results='hold', comment=""}
+results.df <- NULL
+mfrow.val <- ceiling(sqrt(length(country.name)))
+par(mfrow=c(mfrow.val,mfrow.val), mar=c(4.1,1.1,5.1,1.1))
+for(cc in 1:length(country.name))
+{
+  c.name <- country.name[cc]
+  proportion <- mean(simulated.list[[cc]] <= observed.list[cc])
+  results.df <- rbind(results.df, data.frame(Country=c.name, Probability=proportion))
+  hist(as.numeric(simulated.list[[cc]]), breaks=0:max(unlist(simulated.list)), col="#aaaaaa",
+       ylab="", xlab="Links on Holidays", main=country.name[cc], yaxt="n", yaxs="i")
+  abline(v=observed.list[cc], col="red", lwd=2)
+}
+print(results.df[order(results.df$Probability),], right=F, row.names=F)
+```
+
+This means that it is least likely for a set of dates with this few holidays to occur at random in the United States.
