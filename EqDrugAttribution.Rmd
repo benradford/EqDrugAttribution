@@ -30,18 +30,23 @@ output: html_document
 #         csv_file.writerow(dd)
 ```
 
-First, we will download the holidays for several candidate countries from [timeanddate.com](www.timeanddate.com). To do this, we'll use the [`XML`](http://cran.r-project.org/web/packages/XML/index.html) package in [`R`](http://www.r-project.org/).
-```{r}
+# Introduction
+In February 2015, Kaspersky Labs released a [report (PDF)](https://securelist.com/files/2015/02/Equation_group_questions_and_answers.pdf) detailing its investigation into the [Equation Group](https://en.wikipedia.org/wiki/Equation_Group), an extremely sophisticated cyberspace actor engaged in espionage. Many experts suspect the United States to be behind Equation Group due to keywords identified in malware the group has produced. In this article, I will use a different approach to produce evidence for attribution. Kaspersky released, in addition to it's initial report, data on the dates that pieces of malware were compiled by Equation Group. These timestamps fall almost exclusive during the working week and appear to follow a 9:00 to 5:00 schedule. Assuming that Equation Group is operated by a state actor (government), we can correlate these dates with holidays to identify countries that are more or less likely to be responsible.
+
+# Getting Data
+First, we will download holiday data for several candidate countries from [timeanddate.com](www.timeanddate.com). To do this, we'll use the [`XML`](http://cran.r-project.org/web/packages/XML/index.html) package in [`R`](http://www.r-project.org/). The candidate countries are those that are most likely to have advanced cyber capabilities as well as a few countries that fall within the [UTC-3 timezone](http://securelist.com/blog/research/69203/inside-the-equationdrug-espionage-platform/).
+```{r, message=F, error=F, warning=F}
+library(timeDate)
 library(XML)
+
 base.url <- "http://www.timeanddate.com/holidays"
-countries <- c("russia","israel","china","iran","canada","uk","us","brazil","australia","new-zealand","germany")
+countries <- c("russia","israel","china","iran","canada","uk","us","brazil","australia","germany","argentina")
 years <- 2001:2013
 holiday.list <- list()
 for(yy in years)
 {
   for(cc in countries)
   {
-    cat("\r",cc," ",yy,"           ")
     holiday.url <- paste(base.url,cc,yy,sep="/")
     page <- htmlParse(holiday.url)
     tabs <- readHTMLTable(page, header=T)
@@ -57,9 +62,8 @@ for(yy in years)
 holiday.df <- do.call(rbind,holiday.list)
 ```
 
-Now we'll open our new holiday file in R as a dataframe. Then, we'll load the Equation Group's link timestamp dates into the R object `eq.dates`. These come from [Kaspersky Labs](http://securelist.com/blog/research/69203/inside-the-equationdrug-espionage-platform/). 
+Next, we'll load the Equation Group's link timestamp dates into the R object `eq.dates`. These come from [Kaspersky Labs](http://securelist.com/blog/research/69203/inside-the-equationdrug-espionage-platform/). The three weekend dates observed in the Equation Group's timestamps are thrown out and our analysis assumes that the remaining weekdays are chosen at random. This is due to the fact that we have to make assumptions about the data generating process and cannot infer the day-of-week distribution from the observed data without risking post-treatment bias. Simply put, it is easiest (and, in my opinion, safest) to assume that the three weekend timestamps are outliers regardless of the country in which Equation Group is operating and that the distribution of weekday timestamps is random and uniform (controlling for holidays).
 ```{r, echo=T, error=F, message=F, warning=F, results='hide'}
-library(timeDate)
 holiday.list <- split(holiday.df, holiday.df$country)
 
 eq.dates <- c("2001.08.17", "2007.12.11", "2009.04.16", "2011.10.20", "2012.08.31", "2013.06.11",
@@ -77,31 +81,18 @@ eq.dates <- c("2001.08.17", "2007.12.11", "2009.04.16", "2011.10.20", "2012.08.3
               "2007.10.16", "2008.09.24", "2011.09.02", "2012.08.03", "2013.05.14",
               "2007.12.10", "2008.12.05", "2011.10.04", "2012.08.14", "2013.05.24")
 eq.dates <- as.Date(eq.dates,"%Y.%m.%d")
+eq.dates <- eq.dates[isWeekday(eq.dates)]
 
 # Set parameters
-week.distribution <- table(dayOfWeek(timeDate(eq.dates)))
 all.dates <- seq(min(eq.dates),max(eq.dates),by=1)
-mon <- all.dates[dayOfWeek(timeDate(all.dates))=="Mon"]
-tue <- all.dates[dayOfWeek(timeDate(all.dates))=="TUe"]
-wed <- all.dates[dayOfWeek(timeDate(all.dates))=="Wed"]
-thu <- all.dates[dayOfWeek(timeDate(all.dates))=="Thu"]
-fri <- all.dates[dayOfWeek(timeDate(all.dates))=="Fri"]
-sat <- all.dates[dayOfWeek(timeDate(all.dates))=="Sat"]
-sun <- all.dates[dayOfWeek(timeDate(all.dates))=="Sun"]
+all.dates <- all.dates[isWeekday(all.dates)]
 n <- 10000
 
 # Simulate n link dates
 sample.dates <- list()
 for(ii in 1:n)
 {
-  sample.mon <- sample(mon, week.distribution["Mon"], replace=F)
-  sample.tue <- sample(mon, week.distribution["Tue"], replace=F)
-  sample.wed <- sample(mon, week.distribution["Wed"], replace=F)
-  sample.thu <- sample(mon, week.distribution["Thu"], replace=F)
-  sample.fri <- sample(mon, week.distribution["Fri"], replace=F)
-  sample.sat <- sample(mon, week.distribution["Sat"], replace=F)
-  sample.sun <- sample(mon, week.distribution["Sun"], replace=F)
-  week.sample <- c(sample.mon,sample.tue,sample.wed,sample.thu,sample.fri,sample.sat,sample.sun)
+  week.sample <- sample(all.dates, length(eq.dates), replace=F)
   sample.dates <- c(sample.dates, list(week.sample))
 }
 
@@ -118,8 +109,9 @@ for(cc in holiday.list)
 ```
 
 Finally, we will inspect the results.
-```{r, warning=F, error=F, message=F, results='hold', comment=""}
+```{r, warning=F, error=F, message=F, results='hold', comment="", fig.align='center', fig.height=8, fig.width=6}
 results.df <- NULL
+country.name <- toupper(country.name)
 
 par(mfrow=c(4,3), mar=c(2.1,1.1,5.1,1.1))
 for(cc in 1:length(country.name))
@@ -128,7 +120,7 @@ for(cc in 1:length(country.name))
   proportion <- mean(simulated.list[[cc]] <= observed.list[cc])
   results.df <- rbind(results.df, data.frame(Country=c.name, Probability=proportion))
   hist(as.numeric(simulated.list[[cc]]), breaks=0:max(unlist(simulated.list)), col="#aaaaaa",
-       ylab="", xlab="", main=toupper(country.name[cc]), yaxt="n", yaxs="i")
+       ylab="", xlab="", main=country.name[cc], yaxt="n", yaxs="i")
   abline(v=mean(as.numeric(simulated.list[[cc]])), col="blue", lwd=2)
   abline(v=observed.list[cc], col="red", lwd=2)
 }
