@@ -177,7 +177,6 @@ bar.color <- "#ffffbf"
 exp.color <- "#4575b4"
 obs.color <- "#d73027"
 lin.color <- "#fdae61"
-
 par(mfrow=c(3,3), mar=c(4.1,1.1,5.1,1.1))
 for(cc in 1:length(country.name))
 {
